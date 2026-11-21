@@ -69,7 +69,7 @@ export async function startEngine(
     orangeTextures?.right.destroy();
   };
   try {
-    const arena = track(await createTexture(width, height, (ctx) => drawArena(ctx, width, height)));
+    const arena = track(await createTexture(width, height, (ctx) => drawArena(ctx, width, height, config.groundHeight)));
     const catTexture = async (cat: Cat, palette: keyof typeof catPalettes) => {
       const size = cat.radius * 2;
       return track(await createTexture(size, size, (ctx) => drawCat(ctx, size, catPalettes[palette])));

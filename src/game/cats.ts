@@ -14,8 +14,8 @@ export interface Cat {
   invulnUntil: number;
 }
 
-/** 貓站立的高度（貓中心的 y）。 */
-export const groundY = (): number => config.arena.height - config.groundOffset;
+/** 半徑為 radius 的貓站在地面上時，貓中心的 y。 */
+export const groundY = (radius: number): number => config.arena.height - config.groundHeight - radius;
 
 function clampX(x: number, radius: number): number {
   return Math.max(radius, Math.min(config.arena.width - radius, x));

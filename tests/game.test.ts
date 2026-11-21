@@ -32,7 +32,7 @@ describe('黑貓控制（Gate 1）', () => {
   it.each([[-1, r], [1, width - r]])('沿地面往 %i 方向走到邊界 %d 且不出界', (input, expectedX) => {
     const round = startedRound();
     for (let i = 0; i < 300; i++) round.advance(FRAME, input);
-    expect(round.black.pos).toEqual({ x: expectedX, y: groundY() });
+    expect(round.black.pos).toEqual({ x: expectedX, y: groundY(r) });
   });
 
   it('移動速度固定，不受輸入大小影響', () => {
@@ -82,7 +82,7 @@ describe('掉落物與灰貓（Gate 2）', () => {
   it('兩貓同時接到同一物品只計一次分', () => {
     const round = startedRound();
     round.black.pos.x = round.gray.pos.x = 400;
-    const item = round.addItem('can', { x: 400, y: groundY() }, 0);
+    const item = round.addItem('can', { x: 400, y: round.black.pos.y }, 0);
     round.advance(FRAME, 0);
     round.advance(FRAME, 0);
     expect(round.score).toBe(100);
@@ -102,7 +102,8 @@ describe('掉落物與灰貓（Gate 2）', () => {
 
   const item = (id: number, kind: Item['kind'], x: number, y: number, vy = 150): Item =>
     ({ id, kind, pos: { x, y }, vy, spawnTime: 0 });
-  const grayCat = (x: number): Cat => ({ kind: 'gray', pos: { x, y: groundY() }, radius: config.grayCat.radius, invulnUntil: 0 });
+  const grayY = groundY(config.grayCat.radius);
+  const grayCat = (x: number): Cat => ({ kind: 'gray', pos: { x, y: grayY }, radius: config.grayCat.radius, invulnUntil: 0 });
 
   /** 讓物品掉落、灰貓行動；回傳灰貓接到的物品 id，途中不可碰到辣椒。 */
   function play(cat: Cat, items: Item[], seconds: number): number[] {
@@ -122,7 +123,7 @@ describe('掉落物與灰貓（Gate 2）', () => {
 
   it('灰貓只接來得及接到、最快落地的小魚干（含橘色），不追大魚干與罐頭', () => {
     const cat = grayCat(400);
-    const y = groundY();
+    const y = grayY;
     const items = [
       item(1, 'big', 400, y - 40), item(2, 'can', 410, y - 60),
       item(3, 'small', 60, y - 30),
@@ -141,13 +142,13 @@ describe('掉落物與灰貓（Gate 2）', () => {
 
   it('辣椒正對著灰貓落下時會閃開', () => {
     const cat = grayCat(400);
-    play(cat, [item(1, 'chili', 400, groundY() - 150), item(2, 'chili', 430, groundY() - 220)], 3);
+    play(cat, [item(1, 'chili', 400, grayY - 150), item(2, 'chili', 430, grayY - 220)], 3);
     expect(cat.pos.x).not.toBe(400);
   });
 
   it('路線被即將落地的辣椒擋住時，改接可安全抵達的小魚干', () => {
     const cat = grayCat(400);
-    const y = groundY();
+    const y = grayY;
     const blocked = item(1, 'small', 560, y - 120);
     const safe = item(2, 'small', 300, y - 200);
     const items = [item(9, 'chili', 470, y - 60), blocked, safe];

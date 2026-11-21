@@ -1,16 +1,16 @@
 /** 全部可調遊戲參數的唯一來源（R11）。時間單位為秒，長度單位為競技場像素。 */
 export const config = {
   arena: { width: 800, height: 450 },
-  /** 貓站在地面上：貓中心距離畫面底部的距離。 */
-  groundOffset: 36,
+  /** 畫面底部地面帶的高度；貓的腳踩在它的上緣。 */
+  groundHeight: 12,
   roundSeconds: 120,
   lives: 3,
   invulnerableSeconds: 1,
 
   /** 黑貓只能沿地面左右移動。 */
-  blackCat: { radius: 24, speed: 320 },
+  blackCat: { radius: 36, speed: 320 },
   grayCat: {
-    radius: 22,
+    radius: 33,
     /** 相對黑貓速度的倍率。 */
     speedRatio: 0.8,
     /** 辣椒在此秒數內會落到貓的高度，就視為危險、不走進它下方。 */
@@ -43,7 +43,7 @@ export const config = {
 
   /**
    * 由高至低比對，取第一個達標的評級（R10）。
-   * 模擬 30 回合：黑貓不動時中位數約 880 分；預判落點、會躲辣椒的模擬玩家中位數約 2,200 分。
+   * 模擬 30 回合：黑貓不動時中位數約 960 分；預判落點、會躲辣椒的模擬玩家中位數約 2,280 分。
    */
   grades: [
     { grade: 'S', minScore: 2000 },

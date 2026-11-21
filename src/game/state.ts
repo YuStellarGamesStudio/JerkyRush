@@ -94,8 +94,8 @@ export class Round {
 
   private placeCats(): void {
     const { width } = config.arena;
-    Object.assign(this.black.pos, { x: width / 2 - 80, y: groundY() });
-    Object.assign(this.gray.pos, { x: width / 2 + 80, y: groundY() });
+    Object.assign(this.black.pos, { x: width / 2 - 80, y: groundY(this.black.radius) });
+    Object.assign(this.gray.pos, { x: width / 2 + 80, y: groundY(this.gray.radius) });
     this.black.invulnUntil = 0;
     this.gray.invulnUntil = 0;
   }

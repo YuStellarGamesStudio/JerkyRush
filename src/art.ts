@@ -15,7 +15,7 @@ export const catPalettes = {
   orange: { fur: '#f29a38', outline: '#fff1d6', eye: '#3c8f4f', stripes: '#c96a17' },
 } satisfies Record<string, CatPalette>;
 
-export function drawArena(ctx: CanvasRenderingContext2D, width: number, height: number): void {
+export function drawArena(ctx: CanvasRenderingContext2D, width: number, height: number, groundHeight: number): void {
   ctx.fillStyle = '#163838';
   ctx.fillRect(0, 0, width, height);
   ctx.strokeStyle = '#204746';
@@ -35,7 +35,7 @@ export function drawArena(ctx: CanvasRenderingContext2D, width: number, height: 
   ctx.strokeRect(1, 1, width - 2, height - 2);
   ctx.strokeRect(9, 9, width - 18, height - 18);
   // 地面：貓站在這條帶子上接掉下來的東西。
-  const groundTop = height - 14;
+  const groundTop = height - groundHeight - 2;
   ctx.fillStyle = '#2c5650';
   ctx.fillRect(2, groundTop, width - 4, height - groundTop - 2);
   ctx.fillStyle = '#4f8f84';
