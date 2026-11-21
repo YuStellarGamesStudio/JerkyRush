@@ -1,36 +1,39 @@
 <!doctype html>
-<html lang="zh-Hant">
+<html lang="en">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="description" content="黑貓與灰貓一起撈小魚干、躲辣椒的 120 秒瀏覽器小遊戲。">
-    <title>小魚干大作戰｜Jerky Rush</title>
+    <meta name="description" content="A 120-second browser game: a black cat and a gray cat team up to grab dried fish and dodge chili peppers.">
+    <title>Jerky Rush</title>
   </head>
   <body>
     <main>
       <header>
-        <div><p class="eyebrow">JERKY RUSH</p><h1>小魚干大作戰</h1></div>
+        <div><p class="eyebrow" data-i18n="eyebrow">TWO CATS · ONE SNACK RUSH</p><h1 data-i18n="title">Jerky Rush</h1></div>
         <dl class="hud">
-          <div><dt>分數</dt><dd id="score">0</dd></div>
-          <div><dt>生命</dt><dd id="lives" aria-live="polite"></dd></div>
-          <div><dt>剩餘</dt><dd id="time"></dd></div>
+          <div><dt data-i18n="score">Score</dt><dd id="score">0</dd></div>
+          <div><dt data-i18n="lives">Lives</dt><dd id="lives" aria-live="polite"></dd></div>
+          <div><dt data-i18n="time">Time</dt><dd id="time"></dd></div>
         </dl>
       </header>
       <div class="stage">
-        <canvas id="game" aria-label="小魚干大作戰遊戲區"></canvas>
+        <canvas id="game" aria-label="Jerky Rush play area"></canvas>
         <section class="panel" aria-live="polite">
-          <h2 id="panel-title">準備好了嗎？</h2>
+          <h2 id="panel-title">Ready?</h2>
           <ul id="rules"></ul>
           <div id="result" hidden>
-            <p class="final"><span id="final-score">0</span> 分<span id="grade" class="grade"></span></p>
+            <p class="final"><span id="final-score">0</span> <span data-i18n="pointsUnit">pts</span><span id="grade" class="grade"></span></p>
             <dl id="result-counts" class="counts"></dl>
           </div>
           <p id="record"></p>
-          <button type="button" disabled>開始</button>
+          <button type="button" disabled>Start</button>
         </section>
       </div>
       <dl id="counts" class="counts"></dl>
-      <p class="controls">WASD／方向鍵：移動黑貓　·　P／Esc：暫停或繼續</p>
+      <footer>
+        <p class="controls" data-i18n="controls">WASD / Arrow keys: move the black cat · P / Esc: pause or resume</p>
+        <label class="language"><span data-i18n="language">Language</span> <select id="language"></select></label>
+      </footer>
     </main>
     <script type="module" src="/src/main.ts"></script>
   </body>

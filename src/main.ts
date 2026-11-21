@@ -1,9 +1,10 @@
 import { playMeow, unlockAudio } from './audio';
 import { config } from './config';
-import { startEngine } from './engine-adapter';
+import { startEngine, type EngineView } from './engine-adapter';
 import { gradeFor, type Counts } from './game/scoring';
 import { Round, type Mode } from './game/state';
-import { loadSave, recordRound } from './save';
+import { detectLocale, isLocale, localeNames, locales, messages, type Messages } from './i18n';
+import { loadLocale, loadSave, recordRound, saveLocale } from './save';
 import './style.css';
 
 const $ = <T extends HTMLElement>(selector: string): T => document.querySelector<T>(selector)!;
@@ -14,6 +15,7 @@ const rules = $('#rules');
 const result = $('#result');
 const record = $('#record');
 const button = $<HTMLButtonElement>('.panel button');
+const languageSelect = $<HTMLSelectElement>('#language');
 const hud = { score: $('#score'), lives: $('#lives'), time: $('#time'), counts: $('#counts') };
 
 const round = new Round({ onOrangePickup: playMeow });
@@ -23,25 +25,19 @@ const movementKeys: Record<string, true> = {
   ArrowUp: true, ArrowDown: true, ArrowLeft: true, ArrowRight: true,
 };
 const { scores } = config.items;
+let locale = loadLocale() ?? detectLocale(navigator.languages);
+let t: Messages = messages[locale];
+let engine: EngineView | undefined;
 let saved = loadSave();
+let newBest = false;
 let displayedMode: Mode | undefined;
 let displayedHud = '';
 
-rules.innerHTML = [
-  `小魚干 ${scores.small}・大魚干 ${scores.big}・魚罐頭 ${scores.can} 分`,
-  `${config.roundSeconds} 秒、${config.lives} 條命；辣椒會讓任一隻貓扣一條命`,
-  `灰貓會幫忙撿小魚干，橘色小魚干會叫出橘貓`,
-].map((line) => `<li>${line}</li>`).join('');
-
 function renderCounts(target: HTMLElement, counts: Counts): void {
   target.innerHTML = [
-    ['小魚干', counts.small], ['大魚干', counts.big], ['魚罐頭', counts.can],
-    ['橘色小魚干', counts.orange], ['碰到辣椒', counts.chiliHits],
+    [t.countSmall, counts.small], [t.countBig, counts.big], [t.countCan, counts.can],
+    [t.countOrange, counts.orange], [t.countChili, counts.chiliHits],
   ].map(([label, value]) => `<div><dt>${label}</dt><dd>${value}</dd></div>`).join('');
-}
-
-function renderRecord(newBest = false): void {
-  record.textContent = `${newBest ? '新紀錄！' : ''}最佳分數 ${saved.bestScore}・已玩 ${saved.totalRounds} 回合`;
 }
 
 function renderPanel(): void {
@@ -49,21 +45,20 @@ function renderPanel(): void {
   rules.hidden = round.mode !== 'menu';
   result.hidden = round.mode !== 'result' && round.mode !== 'fail';
   record.hidden = round.mode === 'paused';
+  record.textContent = (newBest && !result.hidden ? t.newRecord : '') + t.record(saved.bestScore, saved.totalRounds);
 
   if (round.mode === 'menu') {
-    renderRecord();
+    panelTitle.textContent = t.ready;
+    button.textContent = t.start;
   } else if (round.mode === 'paused') {
-    panelTitle.textContent = '已暫停';
-    button.textContent = '繼續';
+    panelTitle.textContent = t.paused;
+    button.textContent = t.resume;
   } else if (round.mode === 'result' || round.mode === 'fail') {
-    const previousBest = saved.bestScore;
-    saved = recordRound(round.score);
-    panelTitle.textContent = round.mode === 'fail' ? '生命耗盡' : '時間到！';
+    panelTitle.textContent = round.mode === 'fail' ? t.outOfLives : t.timeUp;
     $('#final-score').textContent = String(round.score);
     $('#grade').textContent = gradeFor(round.score);
     renderCounts($('#result-counts'), round.counts);
-    renderRecord(round.score > previousBest);
-    button.textContent = '再玩一次';
+    button.textContent = t.playAgain;
   }
 }
 
@@ -75,15 +70,54 @@ function renderHud(): void {
     displayedHud = state;
     hud.score.textContent = String(round.score);
     hud.lives.textContent = '♥'.repeat(round.lives) + '♡'.repeat(config.lives - round.lives);
-    hud.lives.setAttribute('aria-label', `剩 ${round.lives} 條命`);
-    hud.time.textContent = `${Math.ceil(round.timeLeft)} 秒`;
+    hud.lives.setAttribute('aria-label', t.livesLeft(round.lives));
+    hud.time.textContent = t.seconds(Math.ceil(round.timeLeft));
     renderCounts(hud.counts, counts);
   }
   if (round.mode !== displayedMode) {
     displayedMode = round.mode;
+    if (round.mode === 'result' || round.mode === 'fail') {
+      const previousBest = saved.bestScore;
+      saved = recordRound(round.score);
+      newBest = round.score > previousBest;
+    }
     renderPanel();
   }
 }
+
+/** 套用目前語言到所有靜態與動態文字。 */
+function applyLocale(): void {
+  document.documentElement.lang = locale;
+  document.title = t.documentTitle;
+  document.querySelector('meta[name="description"]')?.setAttribute('content', t.description);
+  for (const element of document.querySelectorAll<HTMLElement>('[data-i18n]')) {
+    const text = t[element.dataset.i18n as keyof Messages];
+    if (typeof text === 'string') element.textContent = text;
+  }
+  canvas.setAttribute('aria-label', t.canvasLabel);
+  rules.innerHTML = [
+    t.rulePoints(scores.small, scores.big, scores.can),
+    t.ruleRound(config.roundSeconds, config.lives),
+    t.ruleHelpers,
+  ].map((line) => `<li>${line}</li>`).join('');
+  languageSelect.value = locale;
+  displayedHud = '';
+  renderHud();
+  renderPanel();
+}
+
+languageSelect.innerHTML = locales
+  .map((code) => `<option value="${code}" lang="${code}">${localeNames[code]}</option>`).join('');
+languageSelect.addEventListener('change', () => {
+  if (!isLocale(languageSelect.value)) return;
+  locale = languageSelect.value;
+  t = messages[locale];
+  saveLocale(locale);
+  applyLocale();
+  void engine?.setMeowText(t.meow);
+  // 交還焦點，避免方向鍵繼續切換選單。
+  languageSelect.blur();
+});
 
 function isDown(primary: string, alternate: string): number {
   return Number(keys.has(primary) || keys.has(alternate));
@@ -106,6 +140,8 @@ button.addEventListener('click', () => {
 });
 
 window.addEventListener('keydown', (event) => {
+  // 語言選單有焦點時保留原生鍵盤操作。
+  if (event.target === languageSelect) return;
   if (movementKeys[event.code]) {
     event.preventDefault();
     if (round.mode === 'playing') keys.add(event.code);
@@ -128,11 +164,14 @@ window.addEventListener('blur', () => {
   }
 });
 
-renderHud();
-void startEngine(canvas, round, advance).then(() => {
+applyLocale();
+const startupMeow = t.meow;
+void startEngine(canvas, round, advance, startupMeow).then((view) => {
+  engine = view;
+  if (t.meow !== startupMeow) void view.setMeowText(t.meow);
   button.disabled = false;
   button.focus();
 }).catch((error: unknown) => {
-  panelTitle.textContent = '無法啟動遊戲，請重新整理。';
+  panelTitle.textContent = t.startupFailed;
   console.error(error);
 });

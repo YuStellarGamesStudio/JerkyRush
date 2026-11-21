@@ -1,4 +1,5 @@
 import { config } from './config';
+import { isLocale, type Locale } from './i18n';
 
 export interface PersistedData {
   bestScore: number;
@@ -40,4 +41,22 @@ export function recordRound(score: number, storage?: SaveStorage): PersistedData
     console.warn('無法寫入本機存檔。', error);
   }
   return next;
+}
+
+/** 玩家手動選過的語言；不存在或不是支援的語言時回傳 undefined，改用瀏覽器偏好。 */
+export function loadLocale(storage?: Pick<Storage, 'getItem'>): Locale | undefined {
+  try {
+    const value = (storage ?? globalThis.localStorage).getItem(config.localeStorageKey);
+    return isLocale(value) ? value : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export function saveLocale(locale: Locale, storage?: Pick<Storage, 'setItem'>): void {
+  try {
+    (storage ?? globalThis.localStorage).setItem(config.localeStorageKey, locale);
+  } catch (error) {
+    console.warn('無法寫入語言設定。', error);
+  }
 }

@@ -32,11 +32,21 @@ function jump(t: number): number {
   return 1 + (overshoot + 1) * (t - 1) ** 3 + overshoot * (t - 1) ** 2;
 }
 
+export interface EngineView {
+  /** 切換語言時重畫橘貓對話框文字。 */
+  setMeowText(text: string): Promise<void>;
+}
+
 /**
  * 啟動 XYZ.js（Canvas2D 路徑）並每帧呼叫 advance 推進遊戲，再把 round 的狀態同步到畫面。
  * 遊戲核心只透過這個函式接觸引擎。
  */
-export async function startEngine(canvas: HTMLCanvasElement, round: Round, advance: (dt: number) => void): Promise<void> {
+export async function startEngine(
+  canvas: HTMLCanvasElement,
+  round: Round,
+  advance: (dt: number) => void,
+  meowText: string,
+): Promise<EngineView> {
   const { width, height } = config.arena;
   const game = await Game.create({ canvas, renderer: 'canvas2d', width, height, autoResize: false });
   const textures: Texture[] = [];
@@ -44,11 +54,16 @@ export async function startEngine(canvas: HTMLCanvasElement, round: Round, advan
     textures.push(texture);
     return texture;
   };
+  const orangeHeight = config.orangeCat.size;
+  const orangeWidth = orangeHeight * 1.5;
+  const createOrangeTexture = (text: string) =>
+    createTexture(orangeWidth, orangeHeight, (ctx) => drawOrangeCat(ctx, orangeWidth, orangeHeight, text));
+  let orangeTexture: Texture | undefined;
   const dispose = (): void => {
     game.destroy();
     for (const texture of textures) texture.destroy();
+    orangeTexture?.destroy();
   };
-
   try {
     const arena = track(await createTexture(width, height, (ctx) => drawArena(ctx, width, height)));
     const catTexture = async (cat: Cat, palette: keyof typeof catPalettes) => {
@@ -62,10 +77,8 @@ export async function startEngine(canvas: HTMLCanvasElement, round: Round, advan
       const size = config.items.radius[kind] * 2.5;
       itemTextures[kind] = track(await createTexture(size, size, (ctx) => drawItem(ctx, size, kind)));
     }
-    const orangeHeight = config.orangeCat.size;
-    const orangeWidth = orangeHeight * 1.5;
-    const orangeTexture = track(await createTexture(orangeWidth, orangeHeight,
-      (ctx) => drawOrangeCat(ctx, orangeWidth, orangeHeight)));
+    const initialOrange = await createOrangeTexture(meowText);
+    orangeTexture = initialOrange;
 
     const sprite = (texture: Texture, zIndex: number): Sprite =>
       new Sprite({ texture, zIndex, scale: SPRITE_SCALE, position: [width / 2, height / 2] });
@@ -75,7 +88,7 @@ export async function startEngine(canvas: HTMLCanvasElement, round: Round, advan
         () => this.add(sprite(itemTextures.small, 1)));
       readonly graySprite = this.add(sprite(grayTexture, 2));
       readonly blackSprite = this.add(sprite(blackTexture, 3));
-      readonly orangeSprite = this.add(sprite(orangeTexture, 4));
+      readonly orangeSprite = this.add(sprite(initialOrange, 4));
 
       constructor() {
         super();
@@ -116,11 +129,21 @@ export async function startEngine(canvas: HTMLCanvasElement, round: Round, advan
     }
 
     game.addEventListener('error', (event) => console.error((event as CustomEvent<Error>).detail));
-    await game.setScene(new ArenaScene());
+    const scene = new ArenaScene();
+    await game.setScene(scene);
     game.start();
     window.addEventListener('pagehide', (event) => {
       if (!event.persisted) dispose();
     });
+    return {
+      async setMeowText(text) {
+        const next = await createOrangeTexture(text);
+        const previous = orangeTexture;
+        orangeTexture = next;
+        scene.orangeSprite.texture = next;
+        previous?.destroy();
+      },
+    };
   } catch (error) {
     dispose();
     throw error;

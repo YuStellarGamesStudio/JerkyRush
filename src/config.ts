@@ -60,4 +60,5 @@ export const config = {
   orangeCat: { size: 112, enterSeconds: 0.35, holdSeconds: 1.5, leaveSeconds: 0.35 },
   meow: { volume: 0.3, seconds: 0.55 },
   storageKey: 'jerky-rush:save',
+  localeStorageKey: 'jerky-rush:locale',
 } as const;

@@ -86,8 +86,8 @@ export function drawCat(ctx: CanvasRenderingContext2D, size: number, palette: Ca
   ctx.restore();
 }
 
-/** 橘貓彩蛋：大一點的橘貓加上「喵～」對話框；畫在 width×height 中。 */
-export function drawOrangeCat(ctx: CanvasRenderingContext2D, width: number, height: number): void {
+/** 橘貓彩蛋：大一點的橘貓加上叫聲對話框；畫在 width×height 中。 */
+export function drawOrangeCat(ctx: CanvasRenderingContext2D, width: number, height: number, meow: string): void {
   const catSize = height * 0.8;
   ctx.save();
   ctx.translate(0, height - catSize);
@@ -108,10 +108,17 @@ export function drawOrangeCat(ctx: CanvasRenderingContext2D, width: number, heig
   ctx.fill();
   ctx.stroke();
   ctx.fillStyle = '#7a3a06';
-  ctx.font = `700 ${Math.round(bubbleH * 0.55)}px system-ui, sans-serif`;
+  // 字串依語言長短不同，太長時縮小字級以放進對話框。
+  let fontSize = Math.round(bubbleH * 0.55);
+  ctx.font = `700 ${fontSize}px system-ui, sans-serif`;
+  const textWidth = ctx.measureText(meow).width;
+  if (textWidth > bubbleW - 12) {
+    fontSize = Math.floor(fontSize * (bubbleW - 12) / textWidth);
+    ctx.font = `700 ${fontSize}px system-ui, sans-serif`;
+  }
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText('喵～', bubbleX + bubbleW / 2, 2 + bubbleH / 2);
+  ctx.fillText(meow, bubbleX + bubbleW / 2, 2 + bubbleH / 2);
 }
 
 function drawJerky(ctx: CanvasRenderingContext2D, fill: string, outline: string, stripes: number): void {
