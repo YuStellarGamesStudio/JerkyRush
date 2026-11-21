@@ -14,6 +14,7 @@
 - `src/game/`：`state.ts` 狀態機、`cats.ts` 輸入與 AI、`spawner.ts` 生成、`scoring.ts` 計分、`timer.ts` 倒數、`orange-cat.ts` 彩蛋。
 - `src/art.ts`：角色與物品的 Canvas 2D 程式繪圖；`src/audio.ts`：合成喵聲；`src/i18n.ts`：介面文字字典與語言偵測；`src/save.ts`：本機存檔與語言設定的驗證與讀寫。
 - `tests/`：遊戲規則與存檔的 Vitest 測試；`scripts/fetch-xyz.sh`：取得並驗證 XYZ.js；`.github/workflows/deploy.yml`：建置並部署至 GitHub Pages。
+- `public/og-image.png`：1200×630 英文分享圖，以 `src/art.ts` 的繪圖函式產生；角色或物品外觀改變時要重新產生。`index.html` 的 Open Graph／Twitter 標籤固定使用英文。
 
 ## 安全性硬規則
 
