@@ -34,6 +34,12 @@ export function drawArena(ctx: CanvasRenderingContext2D, width: number, height: 
   ctx.lineWidth = 2;
   ctx.strokeRect(1, 1, width - 2, height - 2);
   ctx.strokeRect(9, 9, width - 18, height - 18);
+  // 地面：貓站在這條帶子上接掉下來的東西。
+  const groundTop = height - 14;
+  ctx.fillStyle = '#2c5650';
+  ctx.fillRect(2, groundTop, width - 4, height - groundTop - 2);
+  ctx.fillStyle = '#4f8f84';
+  ctx.fillRect(2, groundTop, width - 4, 2);
 }
 
 /** 俯視貓頭；畫在 size×size 的方格中。 */
@@ -86,25 +92,36 @@ export function drawCat(ctx: CanvasRenderingContext2D, size: number, palette: Ca
   ctx.restore();
 }
 
-/** 橘貓彩蛋：大一點的橘貓加上叫聲對話框；畫在 width×height 中。 */
-export function drawOrangeCat(ctx: CanvasRenderingContext2D, width: number, height: number, meow: string): void {
+export type OrangeSide = 'left' | 'right';
+
+/**
+ * 橘貓彩蛋：大一點的橘貓加上叫聲對話框；畫在 width×height 中。
+ * side 是橘貓探出的那一側邊緣：貓靠該側，對話框朝畫面內。
+ */
+export function drawOrangeCat(
+  ctx: CanvasRenderingContext2D, width: number, height: number, meow: string, side: OrangeSide,
+): void {
   const catSize = height * 0.8;
   ctx.save();
-  ctx.translate(0, height - catSize);
+  ctx.translate(side === 'left' ? 0 : width - catSize, height - catSize);
   drawCat(ctx, catSize, catPalettes.orange);
   ctx.restore();
 
-  const bubbleX = catSize * 0.78;
-  const bubbleW = width - bubbleX - 2;
+  const bubbleW = width - catSize * 0.78 - 2;
+  const bubbleX = side === 'left' ? catSize * 0.78 : 2;
   const bubbleH = height * 0.32;
+  // 對話框的尾巴指向貓。
+  const tailBase = side === 'left' ? bubbleX + 10 : bubbleX + bubbleW - 10;
+  const tailTip = side === 'left' ? bubbleX - 6 : bubbleX + bubbleW + 6;
+  const tailEnd = side === 'left' ? bubbleX + 24 : bubbleX + bubbleW - 24;
   ctx.fillStyle = '#fff8ea';
   ctx.strokeStyle = '#c96a17';
   ctx.lineWidth = 2;
   ctx.beginPath();
   ctx.roundRect(bubbleX, 2, bubbleW, bubbleH, 10);
-  ctx.moveTo(bubbleX + 10, bubbleH - 2);
-  ctx.lineTo(bubbleX - 6, bubbleH + 14);
-  ctx.lineTo(bubbleX + 24, bubbleH + 1);
+  ctx.moveTo(tailBase, bubbleH - 2);
+  ctx.lineTo(tailTip, bubbleH + 14);
+  ctx.lineTo(tailEnd, bubbleH + 1);
   ctx.fill();
   ctx.stroke();
   ctx.fillStyle = '#7a3a06';

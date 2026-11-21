@@ -1,4 +1,4 @@
-import { playMeow, unlockAudio } from './audio';
+import { playCatch, playMeow, unlockAudio } from './audio';
 import { config } from './config';
 import { startEngine, type EngineView } from './engine-adapter';
 import { gradeFor, type Counts } from './game/scoring';
@@ -18,12 +18,12 @@ const button = $<HTMLButtonElement>('.panel button');
 const languageSelect = $<HTMLSelectElement>('#language');
 const hud = { score: $('#score'), lives: $('#lives'), time: $('#time'), counts: $('#counts') };
 
-const round = new Round({ onOrangePickup: playMeow });
+const round = new Round({
+  onCatch: playCatch,
+  onOrangeCatAppear: playMeow,
+});
 const keys = new Set<string>();
-const movementKeys: Record<string, true> = {
-  KeyW: true, KeyA: true, KeyS: true, KeyD: true,
-  ArrowUp: true, ArrowDown: true, ArrowLeft: true, ArrowRight: true,
-};
+const movementKeys: Record<string, true> = { KeyA: true, KeyD: true, ArrowLeft: true, ArrowRight: true };
 const { scores } = config.items;
 let locale = loadLocale() ?? detectLocale(navigator.languages);
 let t: Messages = messages[locale];
@@ -124,9 +124,7 @@ function isDown(primary: string, alternate: string): number {
 }
 
 function advance(dt: number): void {
-  round.advance(dt,
-    isDown('KeyD', 'ArrowRight') - isDown('KeyA', 'ArrowLeft'),
-    isDown('KeyS', 'ArrowDown') - isDown('KeyW', 'ArrowUp'));
+  round.advance(dt, isDown('KeyD', 'ArrowRight') - isDown('KeyA', 'ArrowLeft'));
   renderHud();
 }
 

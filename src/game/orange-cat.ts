@@ -7,20 +7,23 @@ export class OrangeCat {
   state: OrangeCatState = 'idle';
   /** 0＝完全藏在邊緣外，1＝完全跳出。 */
   shown = 0;
-  /** 跳出的水平位置（競技場座標）。 */
+  /** 觸發位置（競技場 x 座標）；畫面據此決定從左邊或右邊探出來。 */
   x = 0;
   private holdTimer = 0;
 
-  /** 同場最多一隻：演出中再觸發只會重置停留時間或讓牠回到畫面上。 */
-  trigger(x: number): void {
+  /**
+   * 同場最多一隻：演出中再觸發只會重置停留時間或讓牠回到畫面上。
+   * 回傳 true 表示這次是從畫面外新跳出來（該喵一聲）。
+   */
+  trigger(x: number): boolean {
     if (this.state === 'idle') {
       this.x = x;
       this.state = 'entering';
-    } else if (this.state === 'leaving') {
-      this.state = 'entering';
-    } else if (this.state === 'holding') {
-      this.holdTimer = 0;
+      return true;
     }
+    if (this.state === 'leaving') this.state = 'entering';
+    else if (this.state === 'holding') this.holdTimer = 0;
+    return false;
   }
 
   advance(dt: number): void {

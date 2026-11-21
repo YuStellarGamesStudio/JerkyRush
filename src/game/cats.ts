@@ -14,131 +14,103 @@ export interface Cat {
   invulnUntil: number;
 }
 
-function clampToArena(pos: Position, radius: number): void {
-  const { width, height } = config.arena;
-  pos.x = Math.max(radius, Math.min(width - radius, pos.x));
-  pos.y = Math.max(radius, Math.min(height - radius, pos.y));
+/** 貓站立的高度（貓中心的 y）。 */
+export const groundY = (): number => config.arena.height - config.groundOffset;
+
+function clampX(x: number, radius: number): number {
+  return Math.max(radius, Math.min(config.arena.width - radius, x));
 }
 
 export function overlaps(cat: Pick<Cat, 'pos' | 'radius'>, item: Item): boolean {
   return Math.hypot(cat.pos.x - item.pos.x, cat.pos.y - item.pos.y) < cat.radius + config.items.radius[item.kind];
 }
 
-/** 八方向移動；對角線輸入正規化成與單向相同的速度。 */
-export function moveBlackCat(cat: Cat, x: number, y: number, dt: number): void {
-  if (x === 0 && y === 0) return;
-  const step = config.blackCat.speed * dt / Math.hypot(x, y);
-  cat.pos.x += x * step;
-  cat.pos.y += y * step;
-  clampToArena(cat.pos, cat.radius);
+/** 黑貓沿地面左右移動；inputX 為 −1、0、1。 */
+export function moveBlackCat(cat: Cat, inputX: number, dt: number): void {
+  cat.pos.x = clampX(cat.pos.x + Math.sign(inputX) * config.blackCat.speed * dt, cat.radius);
 }
 
-function distanceToSegment(point: Position, from: Position, to: Position): number {
-  const dx = to.x - from.x;
-  const dy = to.y - from.y;
-  const lengthSquared = dx * dx + dy * dy;
-  const t = lengthSquared === 0
-    ? 0
-    : Math.max(0, Math.min(1, ((point.x - from.x) * dx + (point.y - from.y) * dy) / lengthSquared));
-  return Math.hypot(point.x - (from.x + dx * t), point.y - (from.y + dy * t));
+interface Zone {
+  left: number;
+  right: number;
 }
 
-/** 灰貓 AI：只追最近的小魚干（含橘色），繞開辣椒；被卡住就改追可安全抵達的小魚干。 */
+/**
+ * 灰貓 AI：在地面左右移動，接「最快落地且來得及接到」的小魚干（含橘色）；
+ * 不走到快落地的辣椒下方，已在下方就往較近的一側閃開；路線被辣椒擋住時改接可安全抵達的小魚干。
+ */
 export class GrayCatAI {
   targetId: number | undefined;
-  private bestDistance = Infinity;
-  private stalledSeconds = 0;
-  /** 上次繞行的方向（+1／−1）；同幅度偏航時優先沿用，避免左右搖擺。 */
-  private turnSide = 1;
-  /** 被判定卡住的目標；全部消失後恢復一般選取。 */
-  private readonly blocked = new Set<number>();
 
   reset(): void {
     this.targetId = undefined;
-    this.bestDistance = Infinity;
-    this.stalledSeconds = 0;
-    this.blocked.clear();
   }
 
-  /** 最近的小魚干；有卡住紀錄時優先選路線上沒有辣椒的，都沒有才退回最近的。 */
-  selectTarget(pos: Position, items: readonly Item[]): Item | undefined {
-    for (const id of this.blocked) {
-      if (!items.some((item) => item.id === id)) this.blocked.delete(id);
+  /** 即將落到貓高度的辣椒所遮住的水平範圍。 */
+  dangerZones(cat: Cat, items: readonly Item[]): Zone[] {
+    const { dangerSeconds, avoidMargin } = config.grayCat;
+    const zones: Zone[] = [];
+    for (const item of items) {
+      if (item.kind !== 'chili') continue;
+      const reach = cat.radius + config.items.radius.chili;
+      const above = cat.pos.y - item.pos.y;
+      if (above > reach + item.vy * dangerSeconds || above < -reach) continue;
+      const half = reach + avoidMargin;
+      zones.push({ left: item.pos.x - half, right: item.pos.x + half });
     }
-    const chilis = items.filter((item) => item.kind === 'chili');
-    let nearest: Item | undefined;
-    let nearestSafe: Item | undefined;
-    let nearestDistance = Infinity;
-    let nearestSafeDistance = Infinity;
+    return zones;
+  }
+
+  selectTarget(cat: Cat, items: readonly Item[]): Item | undefined {
+    const speed = config.blackCat.speed * config.grayCat.speedRatio;
+    const zones = this.dangerZones(cat, items);
+    let best: Item | undefined;
+    let bestTime = Infinity;
+    let bestDistance = Infinity;
     for (const item of items) {
       if (item.kind !== 'small' && item.kind !== 'orange-small') continue;
-      if (this.blocked.has(item.id)) continue;
-      const distance = Math.hypot(item.pos.x - pos.x, item.pos.y - pos.y);
-      if (distance < nearestDistance) {
-        nearest = item;
-        nearestDistance = distance;
-      }
-      if (distance < nearestSafeDistance
-        && chilis.every((chili) => distanceToSegment(chili.pos, pos, item.pos) >= config.grayCat.avoidRadius)) {
-        nearestSafe = item;
-        nearestSafeDistance = distance;
+      const reach = cat.radius + config.items.radius[item.kind];
+      const above = cat.pos.y - item.pos.y;
+      if (above < -reach * 0.5) continue;
+      const timeToLand = Math.max(0, above) / item.vy;
+      const distance = Math.abs(item.pos.x - cat.pos.x);
+      if (distance - reach > speed * timeToLand) continue;
+      const from = Math.min(cat.pos.x, item.pos.x);
+      const to = Math.max(cat.pos.x, item.pos.x);
+      if (zones.some((zone) => zone.left < to && zone.right > from)) continue;
+      if (timeToLand < bestTime || (timeToLand === bestTime && distance < bestDistance)) {
+        best = item;
+        bestTime = timeToLand;
+        bestDistance = distance;
       }
     }
-    return this.blocked.size > 0 ? nearestSafe ?? nearest : nearest;
+    return best;
   }
 
   step(cat: Cat, items: readonly Item[], dt: number): void {
-    const { speedRatio, lookahead, avoidMargin, stuckSeconds, stuckDistance } = config.grayCat;
-    const target = this.selectTarget(cat.pos, items);
-    if (target?.id !== this.targetId) {
-      this.targetId = target?.id;
-      this.bestDistance = Infinity;
-      this.stalledSeconds = 0;
+    const maxStep = config.blackCat.speed * config.grayCat.speedRatio * dt;
+    const zones = this.dangerZones(cat, items);
+    const x = cat.pos.x;
+
+    const inside = zones.find((zone) => zone.left < x && zone.right > x);
+    if (inside) {
+      // 往較近且不會撞牆的一側閃開。
+      const leftOk = inside.left - cat.radius >= 0;
+      const rightOk = inside.right + cat.radius <= config.arena.width;
+      const goLeft = leftOk && (!rightOk || x - inside.left <= inside.right - x);
+      cat.pos.x = clampX(x + (goLeft ? -maxStep : maxStep), cat.radius);
+      this.targetId = undefined;
+      return;
     }
+
+    const target = this.selectTarget(cat, items);
+    this.targetId = target?.id;
     if (!target) return;
-
-    const distance = Math.hypot(target.pos.x - cat.pos.x, target.pos.y - cat.pos.y);
-    if (distance < this.bestDistance - stuckDistance) {
-      this.bestDistance = distance;
-      this.stalledSeconds = 0;
-    } else {
-      this.stalledSeconds += dt;
-      if (this.stalledSeconds >= stuckSeconds) {
-        this.blocked.add(target.id);
-        this.targetId = undefined;
-        return;
-      }
+    let next = x + Math.max(-maxStep, Math.min(maxStep, target.pos.x - x));
+    for (const zone of zones) {
+      if (next > x && zone.left >= x && zone.left < next) next = zone.left;
+      if (next < x && zone.right <= x && zone.right > next) next = zone.right;
     }
-    if (distance === 0) return;
-
-    const chilis = items.filter((item) => item.kind === 'chili');
-    const clearance = cat.radius + config.items.radius.chili + avoidMargin;
-    const stepLength = Math.min(config.blackCat.speed * speedRatio * dt, distance);
-    const heading = Math.atan2(target.pos.y - cat.pos.y, target.pos.x - cat.pos.x);
-    const { width, height } = config.arena;
-
-    // 先以前方偵測距離找不會擦到辣椒的方向，偏離目標方向越小越優先；都不行再只看一步。
-    for (const reach of [Math.min(lookahead, distance), stepLength]) {
-      for (let k = 0; k <= 8; k++) {
-        for (const side of k === 0 ? [0] : [this.turnSide, -this.turnSide]) {
-          const angle = heading + side * k * Math.PI / 8;
-          const end = { x: cat.pos.x + Math.cos(angle) * reach, y: cat.pos.y + Math.sin(angle) * reach };
-          if (end.x < cat.radius || end.x > width - cat.radius || end.y < cat.radius || end.y > height - cat.radius) {
-            continue;
-          }
-          // 已在安全距離內的辣椒，只要不再更靠近就允許（讓貓能離開）。
-          const blocked = chilis.some((chili) => {
-            const current = Math.hypot(chili.pos.x - cat.pos.x, chili.pos.y - cat.pos.y);
-            return distanceToSegment(chili.pos, cat.pos, end) < Math.min(clearance, current - 1e-6);
-          });
-          if (blocked) continue;
-          if (side !== 0) this.turnSide = side;
-          cat.pos.x += Math.cos(angle) * stepLength;
-          cat.pos.y += Math.sin(angle) * stepLength;
-          clampToArena(cat.pos, cat.radius);
-          return;
-        }
-      }
-    }
+    cat.pos.x = clampX(next, cat.radius);
   }
 }

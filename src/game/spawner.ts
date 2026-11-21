@@ -7,21 +7,21 @@ export type ItemKind = FoodKind | 'chili';
 export interface Item {
   readonly id: number;
   readonly kind: ItemKind;
+  /** 每帧依 vy 往下移動。 */
   readonly pos: Position;
+  /** 落下速度（像素／秒）。 */
+  readonly vy: number;
   readonly spawnTime: number;
-  readonly ttl: number;
 }
 
 /** 回傳 [0, 1) 的亂數；測試可注入固定序列。 */
 export type Random = () => number;
 
-export function difficultyAt(elapsed: number): { interval: number; chiliRatio: number } {
+export function difficultyAt(elapsed: number): { interval: number; chiliRatio: number; fallSpeed: number } {
   const progress = Math.min(1, Math.max(0, elapsed / config.roundSeconds));
-  const { spawnInterval, chiliRatio } = config.difficulty;
-  return {
-    interval: spawnInterval.start + (spawnInterval.end - spawnInterval.start) * progress,
-    chiliRatio: chiliRatio.start + (chiliRatio.end - chiliRatio.start) * progress,
-  };
+  const lerp = (range: { start: number; end: number }) => range.start + (range.end - range.start) * progress;
+  const { spawnInterval, chiliRatio, fallSpeed } = config.difficulty;
+  return { interval: lerp(spawnInterval), chiliRatio: lerp(chiliRatio), fallSpeed: lerp(fallSpeed) };
 }
 
 export function chooseKind(random: Random, chiliRatio: number): ItemKind {
@@ -35,16 +35,9 @@ export function chooseKind(random: Random, chiliRatio: number): ItemKind {
   return random() < orangeRatio ? 'orange-small' : 'small';
 }
 
-/** 隨機找遠離貓的生成點；多次嘗試仍找不到時回傳 undefined，該次生成略過。 */
-export function spawnPosition(random: Random, avoid: readonly Position[]): Position | undefined {
-  const { width, height } = config.arena;
-  const { spawnMargin: margin, spawnClearance } = config.items;
-  for (let attempt = 0; attempt < 12; attempt++) {
-    const pos = {
-      x: margin + random() * (width - margin * 2),
-      y: margin + random() * (height - margin * 2),
-    };
-    if (avoid.every((other) => Math.hypot(other.x - pos.x, other.y - pos.y) >= spawnClearance)) return pos;
-  }
-  return undefined;
+/** 物品從畫面上緣外、隨機的水平位置開始掉落。 */
+export function spawnPosition(random: Random, kind: ItemKind): Position {
+  const { width } = config.arena;
+  const margin = config.items.spawnMargin;
+  return { x: margin + random() * (width - margin * 2), y: -config.items.radius[kind] };
 }

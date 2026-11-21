@@ -9,7 +9,7 @@ export const localeNames: Record<Locale, string> = { en: 'English', 'zh-Hant': '
 
 const en = {
   documentTitle: 'Jerky Rush',
-  description: 'A 120-second browser game: a black cat and a gray cat team up to grab dried fish and dodge chili peppers.',
+  description: 'A 120-second browser game: snacks rain from the sky and a black cat and a gray cat team up to catch them while dodging chili peppers.',
   eyebrow: 'TWO CATS · ONE SNACK RUSH',
   title: 'Jerky Rush',
   language: 'Language',
@@ -24,7 +24,7 @@ const en = {
     `Dried fish ${small} · Big jerky ${big} · Fish can ${can} pts`,
   ruleRound: (seconds: number, lives: number) =>
     `${seconds} seconds, ${lives} lives — a chili costs a life whichever cat touches it`,
-  ruleHelpers: 'The gray cat grabs dried fish for you; orange fish summon the orange cat',
+  ruleHelpers: 'Catch the falling snacks! The gray cat catches dried fish too; orange fish summon the orange cat',
   start: 'Start',
   paused: 'Paused',
   resume: 'Resume',
@@ -39,7 +39,7 @@ const en = {
   countCan: 'Fish can',
   countOrange: 'Orange fish',
   countChili: 'Chili hits',
-  controls: 'WASD / Arrow keys: move the black cat · P / Esc: pause or resume',
+  controls: 'A / D or ← / →: move the black cat · P / Esc: pause or resume',
   startupFailed: 'The game could not start. Please reload the page.',
   meow: 'Meow!',
 };
@@ -48,7 +48,7 @@ export type Messages = typeof en;
 
 const zhHant: Messages = {
   documentTitle: '小魚干大作戰｜Jerky Rush',
-  description: '黑貓與灰貓一起撈小魚干、躲辣椒的 120 秒瀏覽器小遊戲。',
+  description: '小魚干從天上掉下來，黑貓與灰貓在底下接、躲辣椒的 120 秒瀏覽器小遊戲。',
   eyebrow: 'JERKY RUSH',
   title: '小魚干大作戰',
   language: '語言',
@@ -61,7 +61,7 @@ const zhHant: Messages = {
   ready: '準備好了嗎？',
   rulePoints: (small, big, can) => `小魚干 ${small}・大魚干 ${big}・魚罐頭 ${can} 分`,
   ruleRound: (seconds, lives) => `${seconds} 秒、${lives} 條命；辣椒會讓任一隻貓扣一條命`,
-  ruleHelpers: '灰貓會幫忙撿小魚干，橘色小魚干會叫出橘貓',
+  ruleHelpers: '小魚干從天上掉下來，快去接！灰貓也會幫忙接小魚干，橘色小魚干會叫出橘貓',
   start: '開始',
   paused: '已暫停',
   resume: '繼續',
@@ -76,14 +76,14 @@ const zhHant: Messages = {
   countCan: '魚罐頭',
   countOrange: '橘色小魚干',
   countChili: '碰到辣椒',
-  controls: 'WASD／方向鍵：移動黑貓　·　P／Esc：暫停或繼續',
+  controls: 'A／D 或 ←／→：移動黑貓　·　P／Esc：暫停或繼續',
   startupFailed: '無法啟動遊戲，請重新整理。',
   meow: '喵～',
 };
 
 const ja: Messages = {
   documentTitle: 'にぼし大作戦｜Jerky Rush',
-  description: '黒猫と灰色の猫が力を合わせて煮干しを集め、唐辛子をよける 120 秒のブラウザゲーム。',
+  description: '空から降ってくる煮干しを黒猫と灰色の猫が下でキャッチし、唐辛子をよける 120 秒のブラウザゲーム。',
   eyebrow: 'JERKY RUSH',
   title: 'にぼし大作戦',
   language: '言語',
@@ -96,7 +96,7 @@ const ja: Messages = {
   ready: '準備はいい？',
   rulePoints: (small, big, can) => `煮干し ${small}・大きな煮干し ${big}・魚の缶詰 ${can} 点`,
   ruleRound: (seconds, lives) => `${seconds} 秒・ライフ ${lives}。どちらの猫が唐辛子に触れてもライフが 1 減る`,
-  ruleHelpers: '灰色の猫が煮干しを拾ってくれる。オレンジ煮干しで茶トラ猫が登場！',
+  ruleHelpers: '空から落ちてくる煮干しをキャッチ！灰色の猫も煮干しを拾ってくれる。オレンジ煮干しで茶トラ猫が登場！',
   start: 'スタート',
   paused: '一時停止中',
   resume: '再開',
@@ -111,7 +111,7 @@ const ja: Messages = {
   countCan: '魚の缶詰',
   countOrange: 'オレンジ煮干し',
   countChili: '唐辛子被弾',
-  controls: 'WASD／矢印キー：黒猫を移動　·　P／Esc：一時停止／再開',
+  controls: 'A／D または ←／→：黒猫を移動　·　P／Esc：一時停止／再開',
   startupFailed: 'ゲームを起動できませんでした。ページを再読み込みしてください。',
   meow: 'にゃ〜',
 };

@@ -1,5 +1,5 @@
 import { Game, Scene, Sprite, Texture } from 'xyz.js';
-import { catPalettes, drawArena, drawCat, drawItem, drawOrangeCat } from './art';
+import { catPalettes, drawArena, drawCat, drawItem, drawOrangeCat, type OrangeSide } from './art';
 import { config } from './config';
 import type { Cat } from './game/cats';
 import type { ItemKind } from './game/spawner';
@@ -56,13 +56,17 @@ export async function startEngine(
   };
   const orangeHeight = config.orangeCat.size;
   const orangeWidth = orangeHeight * 1.5;
-  const createOrangeTexture = (text: string) =>
-    createTexture(orangeWidth, orangeHeight, (ctx) => drawOrangeCat(ctx, orangeWidth, orangeHeight, text));
-  let orangeTexture: Texture | undefined;
+  type OrangeTextures = Record<OrangeSide, Texture>;
+  const createOrangeTextures = async (text: string): Promise<OrangeTextures> => ({
+    left: await createTexture(orangeWidth, orangeHeight, (ctx) => drawOrangeCat(ctx, orangeWidth, orangeHeight, text, 'left')),
+    right: await createTexture(orangeWidth, orangeHeight, (ctx) => drawOrangeCat(ctx, orangeWidth, orangeHeight, text, 'right')),
+  });
+  let orangeTextures: OrangeTextures | undefined;
   const dispose = (): void => {
     game.destroy();
     for (const texture of textures) texture.destroy();
-    orangeTexture?.destroy();
+    orangeTextures?.left.destroy();
+    orangeTextures?.right.destroy();
   };
   try {
     const arena = track(await createTexture(width, height, (ctx) => drawArena(ctx, width, height)));
@@ -77,8 +81,8 @@ export async function startEngine(
       const size = config.items.radius[kind] * 2.5;
       itemTextures[kind] = track(await createTexture(size, size, (ctx) => drawItem(ctx, size, kind)));
     }
-    const initialOrange = await createOrangeTexture(meowText);
-    orangeTexture = initialOrange;
+    orangeTextures = await createOrangeTextures(meowText);
+    const initialOrange = orangeTextures.left;
 
     const sprite = (texture: Texture, zIndex: number): Sprite =>
       new Sprite({ texture, zIndex, scale: SPRITE_SCALE, position: [width / 2, height / 2] });
@@ -110,8 +114,6 @@ export async function startEngine(
           const texture = itemTextures[item.kind];
           if (itemSprite.texture !== texture) itemSprite.texture = texture;
           itemSprite.position.set(item.pos.x, item.pos.y);
-          const remaining = item.spawnTime + item.ttl - elapsed;
-          itemSprite.opacity = remaining < config.items.blinkSeconds && Math.floor(remaining * 6) % 2 === 0 ? 0.35 : 1;
         });
 
         for (const [catSprite, cat] of [[this.blackSprite, round.black], [this.graySprite, round.gray]] as const) {
@@ -119,12 +121,15 @@ export async function startEngine(
           catSprite.opacity = catOpacity(cat, elapsed);
         }
 
+        // 橘貓從離觸發位置較近的左右邊緣探出來，不擋住地面上的兩隻貓。
         const orange = round.orangeCat;
-        this.orangeSprite.visible = orange.state !== 'idle';
-        if (orange.state !== 'idle') {
-          const x = Math.max(orangeWidth / 2, Math.min(width - orangeWidth / 2, orange.x));
-          this.orangeSprite.position.set(x, height + orangeHeight / 2 - jump(orange.shown) * (orangeHeight + 4));
-        }
+        this.orangeSprite.visible = orange.state !== 'idle' && orangeTextures !== undefined;
+        if (!this.orangeSprite.visible || !orangeTextures) return;
+        const side: OrangeSide = orange.x < width / 2 ? 'left' : 'right';
+        if (this.orangeSprite.texture !== orangeTextures[side]) this.orangeSprite.texture = orangeTextures[side];
+        const travel = jump(orange.shown) * (orangeWidth + 4);
+        const x = side === 'left' ? -orangeWidth / 2 + travel : width + orangeWidth / 2 - travel;
+        this.orangeSprite.position.set(x, config.orangeCat.y);
       }
     }
 
@@ -137,11 +142,12 @@ export async function startEngine(
     });
     return {
       async setMeowText(text) {
-        const next = await createOrangeTexture(text);
-        const previous = orangeTexture;
-        orangeTexture = next;
-        scene.orangeSprite.texture = next;
-        previous?.destroy();
+        const next = await createOrangeTextures(text);
+        const previous = orangeTextures;
+        orangeTextures = next;
+        scene.orangeSprite.texture = next.left;
+        previous?.left.destroy();
+        previous?.right.destroy();
       },
     };
   } catch (error) {

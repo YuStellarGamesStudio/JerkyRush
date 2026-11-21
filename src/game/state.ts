@@ -1,16 +1,18 @@
 import { config } from '../config';
-import { GrayCatAI, moveBlackCat, overlaps, type Cat } from './cats';
+import { GrayCatAI, groundY, moveBlackCat, overlaps, type Cat } from './cats';
 import { OrangeCat } from './orange-cat';
 import { emptyCounts, recordFood, type Counts } from './scoring';
-import { chooseKind, difficultyAt, spawnPosition, type Item, type Random } from './spawner';
+import { chooseKind, difficultyAt, spawnPosition, type FoodKind, type Item, type Random } from './spawner';
 import { remainingTime } from './timer';
 
 export type Mode = 'menu' | 'playing' | 'paused' | 'result' | 'fail';
 
 export interface RoundOptions {
   random?: Random;
-  /** 橘色小魚干被撿取時呼叫（播放喵聲）；不影響回合數值。 */
-  onOrangePickup?: () => void;
+  /** 任一隻貓接到食物時呼叫（播放音效）；不影響回合數值。 */
+  onCatch?: (kind: FoodKind) => void;
+  /** 橘貓從畫面外跳出來時呼叫（喵一聲）；演出中再觸發不會呼叫。 */
+  onOrangeCatAppear?: () => void;
 }
 
 export class Round {
@@ -27,11 +29,11 @@ export class Round {
   private nextSpawnAt = 0;
   private nextId = 1;
   private readonly random: Random;
-  private readonly onOrangePickup: (() => void) | undefined;
+  private readonly options: RoundOptions;
 
   constructor(options: RoundOptions = {}) {
     this.random = options.random ?? Math.random;
-    this.onOrangePickup = options.onOrangePickup;
+    this.options = options;
     this.placeCats();
   }
 
@@ -58,48 +60,57 @@ export class Round {
     else if (this.mode === 'paused') this.mode = 'playing';
   }
 
-  /** 放入一個物品；生成器與測試共用，確保 id 與存活時間一致。 */
-  addItem(kind: Item['kind'], pos: Item['pos'], spawnTime = this.elapsed): Item {
-    const item = { id: this.nextId++, kind, pos, spawnTime, ttl: config.items.ttlSeconds };
+  /** 放入一個物品；生成器與測試共用。未指定速度時依當下難度與種類決定。 */
+  addItem(
+    kind: Item['kind'],
+    pos: Item['pos'],
+    vy = difficultyAt(this.elapsed).fallSpeed * config.items.fallSpeedScale[kind],
+    spawnTime = this.elapsed,
+  ): Item {
+    const item = { id: this.nextId++, kind, pos, vy, spawnTime };
     this.items.push(item);
     return item;
   }
 
-  advance(dt: number, inputX: number, inputY: number): void {
+  /** inputX：黑貓的左右輸入（−1、0、1）。 */
+  advance(dt: number, inputX: number): void {
     if (this.mode !== 'playing') return;
     const step = Math.min(dt, this.timeLeft);
     this.elapsed += step;
 
-    moveBlackCat(this.black, inputX, inputY, step);
+    moveBlackCat(this.black, inputX, step);
     this.grayAI.step(this.gray, this.items, step);
     this.orangeCat.advance(step);
-    this.expireItems();
-    this.resolvePickups();
+    for (const item of this.items) item.pos.y += item.vy * step;
+    this.resolveCatches();
     if (this.lives === 0) {
       this.mode = 'fail';
       return;
     }
+    this.removeFallen();
     this.spawnDue();
     if (this.timeLeft === 0) this.mode = 'result';
   }
 
   private placeCats(): void {
-    const { width, height } = config.arena;
-    Object.assign(this.black.pos, { x: width / 2 - 80, y: height / 2 });
-    Object.assign(this.gray.pos, { x: width / 2 + 80, y: height / 2 });
+    const { width } = config.arena;
+    Object.assign(this.black.pos, { x: width / 2 - 80, y: groundY() });
+    Object.assign(this.gray.pos, { x: width / 2 + 80, y: groundY() });
     this.black.invulnUntil = 0;
     this.gray.invulnUntil = 0;
   }
 
-  private expireItems(): void {
+  /** 沒被接住、完全掉出畫面底部的物品就消失（R8）。 */
+  private removeFallen(): void {
+    const { height } = config.arena;
     for (let i = this.items.length - 1; i >= 0; i--) {
       const item = this.items[i]!;
-      if (this.elapsed - item.spawnTime >= item.ttl) this.items.splice(i, 1);
+      if (item.pos.y - config.items.radius[item.kind] > height) this.items.splice(i, 1);
     }
   }
 
   /** 先搶先得：每個物品最多被一隻貓處理一次，處理後當帧移除。 */
-  private resolvePickups(): void {
+  private resolveCatches(): void {
     for (let i = 0; i < this.items.length;) {
       const item = this.items[i]!;
       const cat = [this.black, this.gray].find((candidate) =>
@@ -117,10 +128,8 @@ export class Round {
         if (this.lives === 0) return;
       } else {
         this.score += recordFood(this.counts, item.kind);
-        if (item.kind === 'orange-small') {
-          this.orangeCat.trigger(item.pos.x);
-          this.onOrangePickup?.();
-        }
+        this.options.onCatch?.(item.kind);
+        if (item.kind === 'orange-small' && this.orangeCat.trigger(item.pos.x)) this.options.onOrangeCatAppear?.();
       }
     }
   }
@@ -128,11 +137,15 @@ export class Round {
   private spawnDue(): void {
     while (this.elapsed >= this.nextSpawnAt) {
       const spawnTime = this.nextSpawnAt;
-      const { interval, chiliRatio } = difficultyAt(spawnTime);
+      const { interval, chiliRatio, fallSpeed } = difficultyAt(spawnTime);
       this.nextSpawnAt += interval;
       if (this.items.length >= config.items.maxOnField) continue;
-      const pos = spawnPosition(this.random, [this.black.pos, this.gray.pos]);
-      if (pos) this.addItem(chooseKind(this.random, chiliRatio), pos, spawnTime);
+      const kind = chooseKind(this.random, chiliRatio);
+      const pos = spawnPosition(this.random, kind);
+      // 補上排程時間到現在已經落下的距離，讓實際節奏不受帧率影響。
+      const vy = fallSpeed * config.items.fallSpeedScale[kind];
+      pos.y += vy * (this.elapsed - spawnTime);
+      this.addItem(kind, pos, vy, spawnTime);
     }
   }
 }

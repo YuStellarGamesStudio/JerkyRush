@@ -1,10 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 import { config } from '../src/config';
-import { GrayCatAI, overlaps, type Cat } from '../src/game/cats';
+import { GrayCatAI, groundY, overlaps, type Cat } from '../src/game/cats';
 import { OrangeCat } from '../src/game/orange-cat';
 import { gradeFor } from '../src/game/scoring';
 import { chooseKind, difficultyAt, type Item } from '../src/game/spawner';
-import { Round } from '../src/game/state';
+import { Round, type RoundOptions } from '../src/game/state';
 
 const FRAME = 1 / 60;
 
@@ -18,149 +18,162 @@ function seeded(seed: number): () => number {
   };
 }
 
-/** 已開始、但尚未生成任何物品的回合；亂數讓生成點落在右下角，遠離測試擺放的物品。 */
-function startedRound(onOrangePickup?: () => void): Round {
-  const round = new Round({ random: () => 0.999, onOrangePickup });
+/** 已開始的回合；亂數讓自動生成的小魚干都從最右側掉落，遠離測試擺放的物品。 */
+function startedRound(options: Omit<RoundOptions, 'random'> = {}): Round {
+  const round = new Round({ random: () => 0.999, ...options });
   round.start();
   return round;
 }
 
 describe('黑貓控制（Gate 1）', () => {
-  const { width, height } = config.arena;
+  const { width } = config.arena;
   const r = config.blackCat.radius;
 
-  it.each([
-    [-1, -1, r, r], [0, -1, width / 2 - 80, r], [1, -1, width - r, r],
-    [-1, 0, r, height / 2], [1, 0, width - r, height / 2],
-    [-1, 1, r, height - r], [0, 1, width / 2 - 80, height - r], [1, 1, width - r, height - r],
-  ])('輸入 (%i, %i) 可抵達邊界 (%d, %d) 且不出界', (x, y, expectedX, expectedY) => {
+  it.each([[-1, r], [1, width - r]])('沿地面往 %i 方向走到邊界 %d 且不出界', (input, expectedX) => {
     const round = startedRound();
-    for (let i = 0; i < 300; i++) round.advance(FRAME, x, y);
-    expect(round.black.pos.x).toBeCloseTo(expectedX);
-    expect(round.black.pos.y).toBeCloseTo(expectedY);
+    for (let i = 0; i < 300; i++) round.advance(FRAME, input);
+    expect(round.black.pos).toEqual({ x: expectedX, y: groundY() });
   });
 
-  it('對角線速度等於單向速度', () => {
-    for (const [x, y] of [[1, 0], [1, 1], [-1, 1]]) {
-      const round = startedRound();
-      const start = { ...round.black.pos };
-      round.advance(0.2, x!, y!);
-      expect(Math.hypot(round.black.pos.x - start.x, round.black.pos.y - start.y)).toBeCloseTo(config.blackCat.speed * 0.2);
-    }
+  it('移動速度固定，不受輸入大小影響', () => {
+    const round = startedRound();
+    const startX = round.black.pos.x;
+    round.advance(0.2, 1);
+    expect(round.black.pos.x - startX).toBeCloseTo(config.blackCat.speed * 0.2);
   });
 
-  it('暫停時倒數、移動與生成全停', () => {
+  it('暫停時倒數、移動、掉落與生成全停', () => {
     const round = startedRound();
-    round.advance(1, 0, 0);
-    const snapshot = { elapsed: round.elapsed, items: round.items.length, pos: { ...round.black.pos } };
+    round.advance(1, 0);
+    const snapshot = JSON.stringify({ elapsed: round.elapsed, items: round.items, black: round.black.pos });
     round.togglePause();
-    for (let i = 0; i < 300; i++) round.advance(FRAME, 1, 1);
-    expect(round.elapsed).toBe(snapshot.elapsed);
-    expect(round.items).toHaveLength(snapshot.items);
-    expect(round.black.pos).toEqual(snapshot.pos);
+    for (let i = 0; i < 300; i++) round.advance(FRAME, 1);
+    expect(JSON.stringify({ elapsed: round.elapsed, items: round.items, black: round.black.pos })).toBe(snapshot);
     round.togglePause();
-    round.advance(1, 0, 0);
-    expect(round.elapsed).toBe(snapshot.elapsed + 1);
+    round.advance(1, 0);
+    expect(round.elapsed).toBe(2);
   });
 });
 
-describe('物品與灰貓（Gate 2）', () => {
+describe('掉落物與灰貓（Gate 2）', () => {
+  it('物品從畫面上方生成並依速度往下掉', () => {
+    const round = startedRound();
+    round.advance(FRAME, 0);
+    const [spawned] = round.items;
+    expect(spawned!.pos.y).toBeLessThan(0);
+    const item = round.addItem('big', { x: 100, y: 50 }, 120);
+    round.advance(0.5, 0);
+    expect(item.pos.y).toBeCloseTo(110);
+  });
+
   it.each([
     ['small', 10, 'small'], ['big', 50, 'big'], ['can', 100, 'can'], ['orange-small', 10, 'orange'],
-  ] as const)('%s 得 %i 分並計入魚獲', (kind, points, countKey) => {
-    const round = startedRound();
+  ] as const)('接到 %s 得 %i 分、計入魚獲並播放音效', (kind, points, countKey) => {
+    const onCatch = vi.fn();
+    const round = startedRound({ onCatch });
     round.addItem(kind, { ...round.black.pos });
-    round.advance(FRAME, 0, 0);
+    round.advance(FRAME, 0);
     expect(round.score).toBe(points);
     expect(round.counts[countKey]).toBe(1);
     expect(round.lives).toBe(config.lives);
+    expect(onCatch).toHaveBeenCalledExactlyOnceWith(kind);
   });
 
-  it('兩貓同時重疊同一物品只計一次分', () => {
+  it('兩貓同時接到同一物品只計一次分', () => {
     const round = startedRound();
     round.black.pos.x = round.gray.pos.x = 400;
-    round.black.pos.y = round.gray.pos.y = 100;
-    const item = round.addItem('can', { x: 400, y: 100 });
-    round.advance(FRAME, 0, 0);
-    round.advance(FRAME, 0, 0);
+    const item = round.addItem('can', { x: 400, y: groundY() }, 0);
+    round.advance(FRAME, 0);
+    round.advance(FRAME, 0);
     expect(round.score).toBe(100);
     expect(round.counts.can).toBe(1);
     expect(round.items).not.toContain(item);
   });
 
-  it('未撿取的物品在存活時間到期後消失', () => {
+  it('沒接到的物品掉出畫面底部後消失', () => {
     const round = startedRound();
-    const item = round.addItem('small', { x: 60, y: 60 });
-    round.grayAI.selectTarget = () => undefined;
-    for (let t = 0; t < config.items.ttlSeconds - 0.1; t += FRAME) round.advance(FRAME, 0, 0);
+    const { height } = config.arena;
+    const item = round.addItem('big', { x: 60, y: height - 10 }, 100);
+    round.advance(0.2, 0);
     expect(round.items).toContain(item);
-    round.advance(0.2, 0, 0);
+    round.advance(0.2, 0);
     expect(round.items).not.toContain(item);
   });
 
-  const item = (id: number, kind: Item['kind'], x: number, y: number): Item =>
-    ({ id, kind, pos: { x, y }, spawnTime: 0, ttl: config.items.ttlSeconds });
-  const grayCat = (x: number, y: number): Cat =>
-    ({ kind: 'gray', pos: { x, y }, radius: config.grayCat.radius, invulnUntil: 0 });
+  const item = (id: number, kind: Item['kind'], x: number, y: number, vy = 150): Item =>
+    ({ id, kind, pos: { x, y }, vy, spawnTime: 0 });
+  const grayCat = (x: number): Cat => ({ kind: 'gray', pos: { x, y: groundY() }, radius: config.grayCat.radius, invulnUntil: 0 });
 
-  it('灰貓只追最近的小魚干（含橘色），目標消失立即改選', () => {
+  /** 讓物品掉落、灰貓行動；回傳灰貓接到的物品 id，途中不可碰到辣椒。 */
+  function play(cat: Cat, items: Item[], seconds: number): number[] {
     const ai = new GrayCatAI();
-    const items = [
-      item(1, 'big', 110, 100), item(2, 'can', 100, 120), item(3, 'chili', 90, 100),
-      item(4, 'small', 300, 100), item(5, 'orange-small', 250, 100),
-    ];
-    expect(ai.selectTarget({ x: 100, y: 100 }, items)?.id).toBe(5);
-    expect(ai.selectTarget({ x: 100, y: 100 }, items.filter((entry) => entry.id !== 5))?.id).toBe(4);
-    expect(ai.selectTarget({ x: 100, y: 100 }, items.slice(0, 3))).toBeUndefined();
-  });
-
-  /** 讓灰貓走到撿起目標為止；途中不可碰到任何辣椒。 */
-  function chase(cat: Cat, items: Item[], goalId: number, seconds: number): number {
-    const ai = new GrayCatAI();
+    const caught: number[] = [];
     for (let t = 0; t < seconds; t += FRAME) {
       ai.step(cat, items, FRAME);
-      for (const chili of items.filter((entry) => entry.kind === 'chili')) expect(overlaps(cat, chili)).toBe(false);
-      if (overlaps(cat, items.find((entry) => entry.id === goalId)!)) return t;
+      for (const entry of items) entry.pos.y += entry.vy * FRAME;
+      for (let i = items.length - 1; i >= 0; i--) {
+        if (!overlaps(cat, items[i]!)) continue;
+        expect(items[i]!.kind, '灰貓碰到辣椒').not.toBe('chili');
+        caught.push(items.splice(i, 1)[0]!.id);
+      }
     }
-    throw new Error('灰貓沒有抵達目標');
+    return caught;
   }
 
-  it('灰貓繞開擋在路上的辣椒', () => {
-    const cat = grayCat(100, 225);
-    const items = [item(1, 'small', 500, 225), item(2, 'chili', 300, 225), item(3, 'chili', 300, 190)];
-    chase(cat, items, 1, 5);
+  it('灰貓只接來得及接到、最快落地的小魚干（含橘色），不追大魚干與罐頭', () => {
+    const cat = grayCat(400);
+    const y = groundY();
+    const items = [
+      item(1, 'big', 400, y - 40), item(2, 'can', 410, y - 60),
+      item(3, 'small', 60, y - 30),
+      item(4, 'small', 500, y - 300),
+      item(5, 'orange-small', 300, y - 200),
+    ];
+    expect(new GrayCatAI().selectTarget(cat, items)?.id).toBe(5);
+    expect(new GrayCatAI().selectTarget(cat, items.filter((entry) => entry.id !== 5))?.id).toBe(4);
+    expect(new GrayCatAI().selectTarget(cat, items.slice(0, 3))).toBeUndefined();
   });
 
-  it('被辣椒圍住的目標會讓灰貓改選可安全抵達的小魚干', () => {
-    const cat = grayCat(60, 225);
-    const trapped = item(1, 'small', 200, 225);
-    const ring = Array.from({ length: 8 }, (_, i) =>
-      item(10 + i, 'chili', 200 + Math.cos(i * Math.PI / 4) * 45, 225 + Math.sin(i * Math.PI / 4) * 45));
-    const safe = item(2, 'small', 60, 420);
-    const items = [trapped, ...ring, safe];
-    expect(new GrayCatAI().selectTarget(cat.pos, items)?.id).toBe(1);
-    chase(cat, items, 2, 6);
+  it('灰貓接住掉下來的小魚干', () => {
+    const cat = grayCat(200);
+    expect(play(cat, [item(1, 'small', 500, -10)], 4)).toEqual([1]);
+  });
+
+  it('辣椒正對著灰貓落下時會閃開', () => {
+    const cat = grayCat(400);
+    play(cat, [item(1, 'chili', 400, groundY() - 150), item(2, 'chili', 430, groundY() - 220)], 3);
+    expect(cat.pos.x).not.toBe(400);
+  });
+
+  it('路線被即將落地的辣椒擋住時，改接可安全抵達的小魚干', () => {
+    const cat = grayCat(400);
+    const y = groundY();
+    const blocked = item(1, 'small', 560, y - 120);
+    const safe = item(2, 'small', 300, y - 200);
+    const items = [item(9, 'chili', 470, y - 60), blocked, safe];
+    expect(new GrayCatAI().selectTarget(cat, items)?.id).toBe(2);
+    expect(play(cat, items, 3)).toContain(2);
   });
 });
 
 describe('回合與生命（Gate 3）', () => {
   it('任一隻貓碰到辣椒扣一條命，受擊後無敵時間內不再扣命', () => {
     const round = startedRound();
-    round.addItem('chili', { ...round.black.pos });
-    round.advance(FRAME, 0, 0);
+    round.addItem('chili', { ...round.black.pos }, 0);
+    round.advance(FRAME, 0);
     expect(round.lives).toBe(config.lives - 1);
 
-    const second = round.addItem('chili', { ...round.black.pos });
-    for (let t = FRAME; t < config.invulnerableSeconds - 0.05; t += FRAME) round.advance(FRAME, 0, 0);
+    const second = round.addItem('chili', { ...round.black.pos }, 0);
+    for (let t = FRAME; t < config.invulnerableSeconds - 0.05; t += FRAME) round.advance(FRAME, 0);
     expect(round.lives).toBe(config.lives - 1);
     expect(round.items).toContain(second);
-    round.advance(0.1, 0, 0);
+    round.advance(0.1, 0);
     expect(round.lives).toBe(config.lives - 2);
     expect(round.counts.chiliHits).toBe(2);
 
     round.grayAI.step = () => {};
-    round.addItem('chili', { ...round.gray.pos });
-    round.advance(FRAME, 0, 0);
+    round.addItem('chili', { ...round.gray.pos }, 0);
+    round.advance(FRAME, 0);
     expect(round.mode).toBe('fail');
     expect(round.lives).toBe(0);
   });
@@ -169,9 +182,9 @@ describe('回合與生命（Gate 3）', () => {
     const round = startedRound();
     round.lives = 1;
     round.addItem('chili', { ...round.black.pos });
-    round.advance(FRAME, 0, 0);
+    round.advance(FRAME, 0);
     const elapsed = round.elapsed;
-    round.advance(1, 0, 0);
+    round.advance(1, 0);
     expect(round.mode).toBe('fail');
     expect(round.elapsed).toBe(elapsed);
   });
@@ -179,7 +192,7 @@ describe('回合與生命（Gate 3）', () => {
   it('時間到進入結果畫面，再玩一次回到回合開頭', () => {
     const round = startedRound();
     round.addItem('can', { ...round.black.pos });
-    for (let t = 0; t < config.roundSeconds + 1; t += 0.5) round.advance(0.5, 0, 0);
+    for (let t = 0; t < config.roundSeconds + 1; t += 0.5) round.advance(0.5, 0);
     expect(round.mode).toBe('result');
     expect(round.timeLeft).toBe(0);
     expect(round.score).toBeGreaterThan(0);
@@ -201,23 +214,34 @@ describe('回合與生命（Gate 3）', () => {
 });
 
 describe('橘貓彩蛋（Gate 4）', () => {
-  it('撿到橘色小魚干觸發橘貓與喵聲，分數與生命照常', () => {
+  it('接到橘色小魚干時橘貓跳出來喵一聲，演出中再接到不重複喵、分數照常', () => {
     const meow = vi.fn();
-    const round = startedRound(meow);
+    const round = startedRound({ onOrangeCatAppear: meow });
     round.addItem('orange-small', { ...round.black.pos });
-    round.advance(FRAME, 0, 0);
+    round.advance(FRAME, 0);
     expect(meow).toHaveBeenCalledOnce();
     expect(round.orangeCat.state).toBe('entering');
-    expect(round).toMatchObject({ score: config.items.scores['orange-small'], lives: config.lives });
+
+    round.addItem('orange-small', { ...round.black.pos });
+    round.advance(FRAME, 0);
+    expect(meow).toHaveBeenCalledOnce();
+    expect(round).toMatchObject({ score: 2 * config.items.scores['orange-small'], lives: config.lives });
+
+    const { enterSeconds, holdSeconds, leaveSeconds } = config.orangeCat;
+    for (let t = 0; t < enterSeconds + holdSeconds + leaveSeconds + 0.2; t += FRAME) round.advance(FRAME, 0);
+    expect(round.orangeCat.state).toBe('idle');
+    round.addItem('orange-small', { ...round.black.pos });
+    round.advance(FRAME, 0);
+    expect(meow).toHaveBeenCalledTimes(2);
   });
 
   it('連續觸發不疊加，只重置演出時長', () => {
     const { enterSeconds, holdSeconds, leaveSeconds } = config.orangeCat;
     const cat = new OrangeCat();
-    cat.trigger(100);
+    expect(cat.trigger(100)).toBe(true);
     cat.advance(enterSeconds);
     cat.advance(holdSeconds - 0.1);
-    cat.trigger(600);
+    expect(cat.trigger(600)).toBe(false);
     cat.advance(0.2);
     expect(cat).toMatchObject({ state: 'holding', shown: 1, x: 100 });
     cat.advance(holdSeconds);
@@ -227,32 +251,38 @@ describe('橘貓彩蛋（Gate 4）', () => {
 });
 
 describe('難度曲線（Gate 5）', () => {
-  it('出怪間隔與辣椒比例依已用時長線性插值', () => {
-    expect(difficultyAt(0)).toEqual({ interval: 1.2, chiliRatio: 0.1 });
-    expect(difficultyAt(90).interval).toBeCloseTo(0.825);
-    expect(difficultyAt(90).chiliRatio).toBeCloseTo(0.175);
-    expect(difficultyAt(120).interval).toBeCloseTo(0.7);
-    expect(difficultyAt(120).chiliRatio).toBeCloseTo(0.2);
+  it('出怪間隔、辣椒比例與落下速度依已用時長線性插值', () => {
+    const { spawnInterval, chiliRatio, fallSpeed } = config.difficulty;
+    expect(difficultyAt(0)).toEqual({ interval: spawnInterval.start, chiliRatio: chiliRatio.start, fallSpeed: fallSpeed.start });
+    const at90 = difficultyAt(90);
+    expect(at90.interval).toBeCloseTo(spawnInterval.start + (spawnInterval.end - spawnInterval.start) * 0.75);
+    expect(at90.chiliRatio).toBeCloseTo(chiliRatio.start + (chiliRatio.end - chiliRatio.start) * 0.75);
+    expect(at90.fallSpeed).toBeCloseTo(fallSpeed.start + (fallSpeed.end - fallSpeed.start) * 0.75);
+    expect(difficultyAt(120)).toEqual({ interval: spawnInterval.end, chiliRatio: chiliRatio.end, fallSpeed: fallSpeed.end });
   });
 
-  it('第 90–120 秒的實際生成節奏與辣椒比例符合曲線', () => {
+  it('第 90–120 秒的實際生成節奏、速度與辣椒比例符合曲線', () => {
     const round = new Round({ random: seeded(7) });
     round.start();
     const seen = new Map<number, Item>();
     while (round.mode === 'playing') {
-      round.advance(FRAME, 0, 0);
+      round.advance(FRAME, 0);
       for (const entry of round.items) seen.set(entry.id, entry);
     }
     const late = [...seen.values()].filter((entry) => entry.spawnTime >= 90);
     for (let i = 1; i < late.length; i++) {
-      expect(late[i]!.spawnTime - late[i - 1]!.spawnTime).toBeCloseTo(difficultyAt(late[i - 1]!.spawnTime).interval);
+      const previous = late[i - 1]!;
+      expect(late[i]!.spawnTime - previous.spawnTime).toBeCloseTo(difficultyAt(previous.spawnTime).interval);
     }
-    expect(late.length).toBeGreaterThan(30 / 0.825 - 1);
+    for (const entry of late) {
+      expect(entry.vy).toBeCloseTo(difficultyAt(entry.spawnTime).fallSpeed * config.items.fallSpeedScale[entry.kind]);
+    }
+    expect(late.length).toBeGreaterThan(30 / difficultyAt(90).interval - 1);
 
     const random = seeded(11);
     let chilis = 0;
     const draws = 50_000;
     for (let i = 0; i < draws; i++) if (chooseKind(random, difficultyAt(105).chiliRatio) === 'chili') chilis++;
-    expect(chilis / draws).toBeCloseTo(0.1875, 2);
+    expect(chilis / draws).toBeCloseTo(difficultyAt(105).chiliRatio, 2);
   });
 });
