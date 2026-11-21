@@ -3,17 +3,47 @@ import type { ItemKind } from './game/spawner';
 /** 全部角色與物品皆以 Canvas 2D 程式繪製，不使用外部素材（R9）。 */
 
 interface CatPalette {
+  /** 毛色：主色、亮部（受光的頭頂）、暗部（臉頰邊緣與下巴）。 */
   fur: string;
-  outline: string;
-  eye: string;
+  furLight: string;
+  furDark: string;
+  /** 輪廓光；讓深色貓在深色背景上仍看得清楚。 */
+  rim: string;
+  earInner: string;
+  /** 虹膜由瞳孔往外的兩個顏色。 */
+  iris: readonly [string, string];
+  /** 鼻口周圍（鬍鬚墊）的毛色。 */
+  muzzle: string;
+  nose: string;
+  whisker: string;
+  /** 虎斑紋；沒有就是純色貓。 */
   stripes?: string;
 }
 
 export const catPalettes = {
-  black: { fur: '#0b1625', outline: '#85c7b8', eye: '#e6b983' },
-  gray: { fur: '#8d97a4', outline: '#e8eef2', eye: '#7fd36b', stripes: '#69737f' },
-  orange: { fur: '#f29a38', outline: '#fff1d6', eye: '#3c8f4f', stripes: '#c96a17' },
+  black: {
+    fur: '#1c1d23', furLight: '#454b59', furDark: '#08090b', rim: '#7d93a1',
+    earInner: '#5b3c45', iris: ['#ffe08a', '#c47f12'], muzzle: '#2a2c34', nose: '#3b2b30', whisker: '#e6e9ee',
+  },
+  gray: {
+    fur: '#8b929b', furLight: '#c9cfd5', furDark: '#565c65', rim: '#e3e8ec',
+    earInner: '#d99aa1', iris: ['#d4f59a', '#4f9a33'], muzzle: '#d3d8dc', nose: '#c4747e', whisker: '#f7f9fa',
+    stripes: '#4f555d',
+  },
+  orange: {
+    fur: '#e48d37', furLight: '#ffc581', furDark: '#a9561a', rim: '#fff0da',
+    earInner: '#f0a39d', iris: ['#e0f59a', '#5a982d'], muzzle: '#fbe3c6', nose: '#e07c85', whisker: '#fffaf2',
+    stripes: '#a95213',
+  },
 } satisfies Record<string, CatPalette>;
+
+/** 固定種子的亂數，讓毛流筆觸每次重畫都一樣。 */
+function seededRandom(seed: number): () => number {
+  return () => {
+    seed = (seed * 1664525 + 1013904223) >>> 0;
+    return seed / 4294967296;
+  };
+}
 
 export function drawArena(ctx: CanvasRenderingContext2D, width: number, height: number, groundHeight: number): void {
   ctx.fillStyle = '#163838';
@@ -42,53 +72,213 @@ export function drawArena(ctx: CanvasRenderingContext2D, width: number, height: 
   ctx.fillRect(2, groundTop, width - 4, 2);
 }
 
-/** 俯視貓頭；畫在 size×size 的方格中。 */
+/** 單位座標（0–1）的貓頭外形：圓頰、略尖的耳朵、柔和的下巴。 */
+function headPath(ctx: CanvasRenderingContext2D): void {
+  ctx.beginPath();
+  ctx.moveTo(0.17, 0.48);
+  ctx.lineTo(0.13, 0.13);
+  ctx.quadraticCurveTo(0.135, 0.06, 0.2, 0.09);
+  ctx.lineTo(0.4, 0.26);
+  ctx.quadraticCurveTo(0.5, 0.225, 0.6, 0.26);
+  ctx.lineTo(0.8, 0.09);
+  ctx.quadraticCurveTo(0.865, 0.06, 0.87, 0.13);
+  ctx.lineTo(0.83, 0.48);
+  ctx.bezierCurveTo(0.98, 0.64, 0.88, 0.93, 0.5, 0.95);
+  ctx.bezierCurveTo(0.12, 0.93, 0.02, 0.64, 0.17, 0.48);
+  ctx.closePath();
+}
+
+function drawEye(ctx: CanvasRenderingContext2D, x: number, y: number, tilt: number, palette: CatPalette): void {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(tilt);
+  // 眼眶的深色描邊，再畫有漸層的虹膜。
+  ctx.fillStyle = '#060608';
+  ctx.beginPath();
+  ctx.ellipse(0, 0, 0.1, 0.075, 0, 0, Math.PI * 2);
+  ctx.fill();
+  const iris = ctx.createRadialGradient(0, 0.01, 0.005, 0, 0, 0.085);
+  iris.addColorStop(0, palette.iris[0]);
+  iris.addColorStop(1, palette.iris[1]);
+  ctx.fillStyle = iris;
+  ctx.beginPath();
+  ctx.ellipse(0, 0, 0.085, 0.062, 0, 0, Math.PI * 2);
+  ctx.fill();
+  // 上眼瞼的陰影。
+  const lid = ctx.createLinearGradient(0, -0.062, 0, 0.02);
+  lid.addColorStop(0, '#00000080');
+  lid.addColorStop(1, '#00000000');
+  ctx.fillStyle = lid;
+  ctx.fill();
+  // 直立的縫狀瞳孔與反光。
+  ctx.fillStyle = '#050505';
+  ctx.beginPath();
+  ctx.ellipse(0, 0.002, 0.022, 0.058, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#ffffffe6';
+  ctx.beginPath();
+  ctx.arc(-0.03, -0.024, 0.017, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#ffffff80';
+  ctx.beginPath();
+  ctx.arc(0.035, 0.022, 0.008, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+/** 正面的貓頭（光影、毛流、杏仁眼、鬍鬚）；畫在 size×size 的方格中。 */
 export function drawCat(ctx: CanvasRenderingContext2D, size: number, palette: CatPalette): void {
   ctx.save();
-  ctx.scale(size / 48, size / 48);
-  ctx.fillStyle = palette.fur;
-  ctx.strokeStyle = palette.outline;
-  ctx.lineWidth = 2;
+  ctx.scale(size, size);
+  ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
-  ctx.beginPath();
-  ctx.moveTo(6, 22);
-  ctx.lineTo(7, 7);
-  ctx.lineTo(18, 13);
-  ctx.quadraticCurveTo(24, 11, 30, 13);
-  ctx.lineTo(41, 7);
-  ctx.lineTo(42, 22);
-  ctx.bezierCurveTo(52, 49, -4, 49, 6, 22);
-  ctx.closePath();
+
+  // 底色：頭頂受光、邊緣與下巴較暗，做出立體感。
+  headPath(ctx);
+  const shade = ctx.createRadialGradient(0.45, 0.38, 0.04, 0.5, 0.6, 0.62);
+  shade.addColorStop(0, palette.furLight);
+  shade.addColorStop(0.45, palette.fur);
+  shade.addColorStop(1, palette.furDark);
+  ctx.fillStyle = shade;
   ctx.fill();
 
-  if (palette.stripes) {
-    ctx.save();
-    ctx.clip();
-    ctx.strokeStyle = palette.stripes;
-    ctx.lineWidth = 2.5;
+  ctx.save();
+  ctx.clip();
+
+  // 內耳：由耳尖往耳根淡出的粉色，加上耳毛。
+  for (const side of [-1, 1]) {
+    const ear = ctx.createLinearGradient(0.5 + side * 0.32, 0.14, 0.5 + side * 0.24, 0.36);
+    ear.addColorStop(0, `${palette.earInner}dd`);
+    ear.addColorStop(1, `${palette.earInner}00`);
+    ctx.fillStyle = ear;
     ctx.beginPath();
-    for (const x of [19, 24, 29]) {
-      ctx.moveTo(x, 12);
-      ctx.lineTo(x, 19);
+    ctx.moveTo(0.5 + side * 0.325, 0.135);
+    ctx.quadraticCurveTo(0.5 + side * 0.26, 0.2, 0.5 + side * 0.17, 0.295);
+    ctx.lineTo(0.5 + side * 0.3, 0.4);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = `${palette.furLight}aa`;
+    ctx.lineWidth = 0.008;
+    ctx.beginPath();
+    for (let i = 0; i < 4; i++) {
+      const baseX = 0.5 + side * (0.22 + i * 0.025);
+      ctx.moveTo(baseX, 0.33);
+      ctx.lineTo(baseX + side * 0.015, 0.24 - i * 0.012);
     }
-    ctx.moveTo(4, 30);
-    ctx.lineTo(10, 31);
-    ctx.moveTo(44, 30);
-    ctx.lineTo(38, 31);
     ctx.stroke();
-    ctx.restore();
   }
+
+  // 毛流：從臉中心往外放射的短筆觸，亮暗交錯。
+  const random = seededRandom(palette.fur.length * 977 + palette.fur.charCodeAt(1));
+  ctx.lineWidth = 0.009;
+  for (let i = 0; i < 220; i++) {
+    const x = 0.08 + random() * 0.84;
+    const y = 0.1 + random() * 0.86;
+    const angle = Math.atan2(y - 0.62, x - 0.5) + (random() - 0.5) * 0.6;
+    const length = 0.025 + random() * 0.035;
+    ctx.strokeStyle = random() < 0.5 ? `${palette.furLight}55` : `${palette.furDark}66`;
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(x + Math.cos(angle) * length, y + Math.sin(angle) * length);
+    ctx.stroke();
+  }
+
+  // 虎斑：額頭的 M 字紋與臉頰的橫紋。
+  if (palette.stripes) {
+    ctx.strokeStyle = palette.stripes;
+    ctx.lineWidth = 0.028;
+    ctx.beginPath();
+    for (const x of [0.43, 0.5, 0.57]) {
+      ctx.moveTo(x, 0.29);
+      ctx.quadraticCurveTo(x + (x - 0.5) * 0.4, 0.37, x + (x - 0.5) * 0.2, 0.43);
+    }
+    for (const side of [-1, 1]) {
+      for (const y of [0.6, 0.68]) {
+        ctx.moveTo(0.5 + side * 0.44, y);
+        ctx.quadraticCurveTo(0.5 + side * 0.36, y - 0.02, 0.5 + side * 0.3, y + 0.01);
+      }
+    }
+    ctx.stroke();
+  }
+
+  // 鼻口：較淺的鬍鬚墊與下巴。
+  ctx.fillStyle = palette.muzzle;
+  ctx.globalAlpha = 0.9;
+  for (const [x, y, rx, ry, tilt] of [[0.44, 0.735, 0.085, 0.065, 0.2], [0.56, 0.735, 0.085, 0.065, -0.2], [0.5, 0.82, 0.07, 0.05, 0]] as const) {
+    ctx.beginPath();
+    ctx.ellipse(x, y, rx, ry, tilt, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = `${palette.furDark}99`;
+  for (const [x, y] of [[0.41, 0.72], [0.385, 0.75], [0.42, 0.765], [0.59, 0.72], [0.615, 0.75], [0.58, 0.765]] as const) {
+    ctx.beginPath();
+    ctx.arc(x, y, 0.007, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+
+  // 臉頰與下巴邊緣的細毛，從輪廓內往外刷出，讓邊緣不像貼紙那麼平滑。
+  ctx.lineWidth = 0.008;
+  for (let i = 0; i < 60; i++) {
+    // 下半臉的輪廓約為以 (0.5, 0.64) 為中心、半徑 (0.40, 0.31) 的橢圓。
+    const angle = Math.PI * (0.1 + random() * 0.8);
+    const from = 0.85;
+    const to = 1 + random() * 0.08;
+    const dx = Math.cos(angle) * 0.4;
+    const dy = Math.sin(angle) * 0.31;
+    ctx.strokeStyle = random() < 0.6 ? palette.fur : `${palette.furLight}99`;
+    ctx.beginPath();
+    ctx.moveTo(0.5 + dx * from, 0.64 + dy * from);
+    ctx.lineTo(0.5 + dx * to + (random() - 0.5) * 0.015, 0.64 + dy * to);
+    ctx.stroke();
+  }
+
+  // 細微的輪廓光：深色貓在深色背景上也看得出頭形。
+  headPath(ctx);
+  ctx.strokeStyle = `${palette.rim}66`;
+  ctx.lineWidth = 0.012;
   ctx.stroke();
 
-  ctx.fillStyle = palette.eye;
-  ctx.fillRect(13, 24, 5, 6);
-  ctx.fillRect(30, 24, 5, 6);
-  ctx.fillStyle = '#f3a798';
+  drawEye(ctx, 0.335, 0.535, -0.18, palette);
+  drawEye(ctx, 0.665, 0.535, 0.18, palette);
+
+  // 鼻子與嘴。
+  const nose = ctx.createLinearGradient(0, 0.64, 0, 0.7);
+  nose.addColorStop(0, palette.nose);
+  nose.addColorStop(1, `${palette.nose}cc`);
+  ctx.fillStyle = nose;
   ctx.beginPath();
-  ctx.moveTo(21, 31);
-  ctx.lineTo(27, 31);
-  ctx.lineTo(24, 34);
+  ctx.moveTo(0.455, 0.65);
+  ctx.quadraticCurveTo(0.5, 0.63, 0.545, 0.65);
+  ctx.quadraticCurveTo(0.53, 0.68, 0.5, 0.7);
+  ctx.quadraticCurveTo(0.47, 0.68, 0.455, 0.65);
   ctx.fill();
+  ctx.fillStyle = '#ffffff55';
+  ctx.beginPath();
+  ctx.ellipse(0.49, 0.651, 0.017, 0.007, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = '#140d0fcc';
+  ctx.lineWidth = 0.011;
+  ctx.beginPath();
+  ctx.moveTo(0.5, 0.7);
+  ctx.lineTo(0.5, 0.735);
+  ctx.quadraticCurveTo(0.47, 0.775, 0.44, 0.755);
+  ctx.moveTo(0.5, 0.735);
+  ctx.quadraticCurveTo(0.53, 0.775, 0.56, 0.755);
+  ctx.stroke();
+
+  // 鬍鬚：從鬍鬚墊微微彎曲地往外伸。
+  ctx.strokeStyle = `${palette.whisker}d9`;
+  for (const side of [-1, 1]) {
+    for (const [startY, endY, bend] of [[0.725, 0.66, -0.02], [0.745, 0.74, 0], [0.765, 0.82, 0.02]] as const) {
+      ctx.lineWidth = 0.007;
+      ctx.beginPath();
+      ctx.moveTo(0.5 + side * 0.11, startY);
+      ctx.quadraticCurveTo(0.5 + side * 0.3, (startY + endY) / 2 + bend, 0.5 + side * 0.49, endY);
+      ctx.stroke();
+    }
+  }
   ctx.restore();
 }
 
